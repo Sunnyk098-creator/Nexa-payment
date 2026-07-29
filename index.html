@@ -49,18 +49,14 @@
             }
         };
 
-        // Google OAuth 2.0 form submit function (Implicit Grant Flow)
+        // Google OAuth 2.0 Direct Redirect Method
         function oauthSignIn() {
-            // Google auth URI JSON file ke according
-            const oauth2Endpoint = 'https://accounts.google.com/o/oauth2/auth';[span_1](start_span)[span_1](end_span)
+            // Google auth URI
+            const oauth2Endpoint = 'https://accounts.google.com/o/oauth2/auth';
             
-            const form = document.createElement('form');
-            form.setAttribute('method', 'GET');
-            form.setAttribute('action', oauth2Endpoint);
-
             // DIRECTLY ADDED DETAILS HERE
             const params = {
-                'client_id': '54498205491-u61e0mi81il62adc71sfqj0ailii32id.apps.googleusercontent.com',[span_2](start_span)[span_2](end_span)
+                'client_id': '54498205491-u61e0mi81il62adc71sfqj0ailii32id.apps.googleusercontent.com',
                 'redirect_uri': 'https://nexa-payment.vercel.app/',
                 'response_type': 'token',
                 'scope': 'https://www.googleapis.com/auth/gmail.readonly',
@@ -68,16 +64,11 @@
                 'state': 'pass-through value'
             };
 
-            for (let p in params) {
-                let input = document.createElement('input');
-                input.setAttribute('type', 'hidden');
-                input.setAttribute('name', p);
-                input.setAttribute('value', params[p]);
-                form.appendChild(input);
-            }
-
-            document.body.appendChild(form);
-            form.submit();
+            // Parameters ko URL string mein convert karna
+            const queryString = Object.keys(params).map(key => key + '=' + encodeURIComponent(params[key])).join('&');
+            
+            // Browser ko seedha Google Login par bhej dena
+            window.location.href = oauth2Endpoint + '?' + queryString;
         }
 
         // Sign out ke liye UI reset karna
@@ -87,7 +78,7 @@
             document.getElementById('signout_button').classList.add('hidden');
         }
 
-        // Access Token use karke Gmail API se messages fetch karna (Header mein token bhej kar)
+        // Access Token use karke Gmail API se messages fetch karna
         async function fetchEmails(token) {
             const contentDiv = document.getElementById('content');
             contentDiv.innerText = 'Fetching emails...';
