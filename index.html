@@ -3,12 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gmail API Reader</title>
+    <title>Gmail API Reader - Nexa Payment</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 30px; line-height: 1.6; }
+        body { font-family: Arial, sans-serif; margin: 30px; line-height: 1.6; background-color: #f8f9fa;}
         button { padding: 10px 15px; font-size: 16px; cursor: pointer; margin-right: 10px; background: #1a73e8; color: white; border: none; border-radius: 4px;}
-        #content { margin-top: 20px; }
-        .email-item { border-bottom: 1px solid #ccc; padding: 15px 0; }
+        button:hover { background: #1557b0; }
+        #content { margin-top: 20px; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.12); }
+        .email-item { border-bottom: 1px solid #eee; padding: 15px 0; }
+        .email-item:last-child { border-bottom: none; }
         .subject { font-weight: bold; font-size: 18px; color: #202124; }
         .snippet { color: #5f6368; font-size: 14px; margin-top: 5px; }
         .hidden { display: none; }
@@ -19,103 +21,86 @@
     <h1>Gmail API Email Reader</h1>
     
     <!-- Authentication Buttons -->
-    <button id="authorize_button" class="hidden">Log In with Google</button>
-    <button id="signout_button" class="hidden">Sign Out</button>
+    <button id="authorize_button" onclick="oauthSignIn()">Log In with Google</button>
+    <button id="signout_button" class="hidden" onclick="signOut()">Sign Out</button>
 
-    <div id="content"></div>
-
-    <!-- Corrected Google API Scripts -->
-    <script async defer src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
-    <script async defer src="https://accounts.google.com/gsi/client" onload="gisLoaded()"></script>
+    <div id="content">Please log in to view your latest emails.</div>
 
     <script>
-        // Aapka Client ID
-        const CLIENT_ID = '54498205491-u61e0mi81il62adc71sfqj0ailii32id.apps.googleusercontent.com';
-        
-        // Aapki nayi API Key
-        const API_KEY = 'AIzaSyBCLBCVv-sXlxafD9QayWQ_7qU811xAGoo'; 
-        
-        // Corrected Discovery Doc URL
-        const DISCOVERY_DOC = 'https://www.googleapis.com/discovery/v1/apis/gmail/v1/rest';
-        
-        const SCOPES = 'https://www.googleapis.com/auth/gmail.readonly';
-
-        let tokenClient;
-        let gapiInited = false;
-        let gisInited = false;
-
-        const authorizeButton = document.getElementById('authorize_button');
-        const signoutButton = document.getElementById('signout_button');
-        const contentDiv = document.getElementById('content');
-
-        function gapiLoaded() {
-            gapi.load('client', initializeGapiClient);
-        }
-
-        async function initializeGapiClient() {
-            await gapi.client.init({
-                apiKey: API_KEY,
-                discoveryDocs: [DISCOVERY_DOC],
-            });
-            gapiInited = true;
-            maybeEnableButtons();
-        }
-
-        function gisLoaded() {
-            tokenClient = google.accounts.oauth2.initTokenClient({
-                client_id: CLIENT_ID,
-                scope: SCOPES,
-                callback: '', // defined dynamically later
-            });
-            gisInited = true;
-            maybeEnableButtons();
-        }
-
-        function maybeEnableButtons() {
-            if (gapiInited && gisInited) {
-                authorizeButton.classList.remove('hidden');
-                authorizeButton.onclick = handleAuthClick;
-                signoutButton.onclick = handleSignoutClick;
+        // Page load hote hi check karega ki URL mein access token aaya hai ya nahi
+        window.onload = function() {
+            const fragmentString = location.hash.substring(1);
+            const params = {};
+            const regex = /([^&=]+)=([^&]*)/g;
+            let m;
+            while (m = regex.exec(fragmentString)) {
+                params[decodeURIComponent(m[1])] = decodeURIComponent(m[2]);
             }
-        }
 
-        function handleAuthClick() {
-            tokenClient.callback = async (resp) => {
-                if (resp.error !== undefined) {
-                    throw (resp);
-                }
-                authorizeButton.classList.add('hidden');
-                signoutButton.classList.remove('hidden');
-                contentDiv.innerText = 'Fetching emails...';
-                await listLatestEmails();
+            // Agar token mila, toh login button hide karke emails fetch karna shuru karega
+            if (Object.keys(params).length > 0 && params['access_token']) {
+                document.getElementById('authorize_button').classList.add('hidden');
+                document.getElementById('signout_button').classList.remove('hidden');
+                
+                // URL se token clean karna taaki link clean dikhe
+                window.history.pushState({}, document.title, window.location.pathname);
+                
+                fetchEmails(params['access_token']);
+            }
+        };
+
+        // Google OAuth 2.0 form submit function (Implicit Grant Flow)
+        function oauthSignIn() {
+            // Google auth URI JSON file ke according
+            const oauth2Endpoint = 'https://accounts.google.com/o/oauth2/auth';[span_1](start_span)[span_1](end_span)
+            
+            const form = document.createElement('form');
+            form.setAttribute('method', 'GET');
+            form.setAttribute('action', oauth2Endpoint);
+
+            // DIRECTLY ADDED DETAILS HERE
+            const params = {
+                'client_id': '54498205491-u61e0mi81il62adc71sfqj0ailii32id.apps.googleusercontent.com',[span_2](start_span)[span_2](end_span)
+                'redirect_uri': 'https://nexa-payment.vercel.app/',
+                'response_type': 'token',
+                'scope': 'https://www.googleapis.com/auth/gmail.readonly',
+                'include_granted_scopes': 'true',
+                'state': 'pass-through value'
             };
 
-            if (gapi.client.getToken() === null) {
-                tokenClient.requestAccessToken({prompt: 'consent'});
-            } else {
-                tokenClient.requestAccessToken({prompt: ''});
+            for (let p in params) {
+                let input = document.createElement('input');
+                input.setAttribute('type', 'hidden');
+                input.setAttribute('name', p);
+                input.setAttribute('value', params[p]);
+                form.appendChild(input);
             }
+
+            document.body.appendChild(form);
+            form.submit();
         }
 
-        function handleSignoutClick() {
-            const token = gapi.client.getToken();
-            if (token !== null) {
-                google.accounts.oauth2.revoke(token.access_token);
-                gapi.client.setToken(null);
-                contentDiv.innerHTML = '';
-                authorizeButton.classList.remove('hidden');
-                signoutButton.classList.add('hidden');
-            }
+        // Sign out ke liye UI reset karna
+        function signOut() {
+            document.getElementById('content').innerHTML = 'Please log in to view your latest emails.';
+            document.getElementById('authorize_button').classList.remove('hidden');
+            document.getElementById('signout_button').classList.add('hidden');
         }
 
-        async function listLatestEmails() {
+        // Access Token use karke Gmail API se messages fetch karna (Header mein token bhej kar)
+        async function fetchEmails(token) {
+            const contentDiv = document.getElementById('content');
+            contentDiv.innerText = 'Fetching emails...';
+
             try {
-                const response = await gapi.client.gmail.users.messages.list({
-                    'userId': 'me',
-                    'maxResults': 5
+                const listResponse = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=5', {
+                    headers: { 'Authorization': 'Bearer ' + token }
                 });
                 
-                const messages = response.result.messages;
+                if (!listResponse.ok) throw new Error('Network response was not ok');
+                const listData = await listResponse.json();
+                
+                const messages = listData.messages;
                 if (!messages || messages.length === 0) {
                     contentDiv.innerText = 'No messages found.';
                     return;
@@ -124,21 +109,24 @@
                 contentDiv.innerHTML = ''; 
                 
                 for (const message of messages) {
-                    await fetchAndRenderEmail(message.id);
+                    await fetchAndRenderEmail(message.id, token);
                 }
             } catch (err) {
                 contentDiv.innerText = 'Error fetching messages: ' + err.message;
             }
         }
 
-        async function fetchAndRenderEmail(messageId) {
+        // Single email ka data lana aur screen par dikhana
+        async function fetchAndRenderEmail(messageId, token) {
+            const contentDiv = document.getElementById('content');
             try {
-                const response = await gapi.client.gmail.users.messages.get({
-                    'userId': 'me',
-                    'id': messageId
+                const response = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/' + messageId, {
+                    headers: { 'Authorization': 'Bearer ' + token }
                 });
-
-                const email = response.result;
+                
+                if (!response.ok) throw new Error('Network response was not ok');
+                const email = await response.json();
+                
                 const headers = email.payload.headers;
                 const subjectHeader = headers.find(h => h.name.toLowerCase() === 'subject');
                 const subject = subjectHeader ? subjectHeader.value : '(No Subject)';
@@ -156,6 +144,7 @@
             }
         }
 
+        // Text format ko safe rakhne ke liye XSS protection
         function escapeHtml(str) {
             return str.replace(/&/g, "&amp;")
                       .replace(/</g, "&lt;")
