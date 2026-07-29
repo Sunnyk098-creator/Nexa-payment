@@ -3,145 +3,168 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gmail API Reader - Nexa Payment</title>
+    <title>Verify Payment by UTR</title>
+    
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-database-compat.js"></script>
+
     <style>
-        body { font-family: Arial, sans-serif; margin: 30px; line-height: 1.6; background-color: #f8f9fa;}
-        button { padding: 10px 15px; font-size: 16px; cursor: pointer; margin-right: 10px; background: #1a73e8; color: white; border: none; border-radius: 4px;}
-        button:hover { background: #1557b0; }
-        #content { margin-top: 20px; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.12); }
-        .email-item { border-bottom: 1px solid #eee; padding: 15px 0; }
-        .email-item:last-child { border-bottom: none; }
-        .subject { font-weight: bold; font-size: 18px; color: #202124; }
-        .snippet { color: #5f6368; font-size: 14px; margin-top: 5px; }
-        .hidden { display: none; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f0f2f5; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        
+        .search-box { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-bottom: 20px; width: 100%; max-width: 400px; text-align: center;}
+        input[type="text"] { width: 80%; padding: 10px; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 5px; font-size: 16px; }
+        button { padding: 10px 20px; font-size: 16px; background: #1a73e8; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        
+        /* Dark Theme Receipt UI */
+        .receipt-card { background-color: #121212; color: #ffffff; width: 100%; max-width: 380px; border-radius: 20px; padding: 30px 20px; display: none; box-shadow: 0 10px 30px rgba(0,0,0,0.5); font-family: monospace, sans-serif;}
+        .receipt-header { text-align: center; margin-bottom: 30px; }
+        .receipt-header h3 { margin: 5px 0; font-weight: normal; color: #e0e0e0; font-size: 18px;}
+        .amount { font-size: 40px; font-weight: bold; margin: 15px 0; }
+        .payee { font-size: 18px; font-weight: bold; text-transform: uppercase; margin-bottom: 20px;}
+        
+        .receipt-details { background-color: #1e1e1e; border-radius: 15px; padding: 20px; text-align: left; }
+        .detail-row { margin-bottom: 15px; }
+        .detail-label { color: #888; font-size: 12px; margin-bottom: 5px; }
+        .detail-value { font-size: 14px; color: #ddd; letter-spacing: 0.5px; word-break: break-all;}
+        
+        #error-msg { color: red; margin-top: 10px; display: none;}
+        #loading { display: none; margin-top: 10px; font-weight: bold; color: #555; }
     </style>
 </head>
 <body>
 
-    <h1>Gmail API Email Reader</h1>
-    
-    <!-- Authentication Buttons -->
-    <button id="authorize_button" onclick="oauthSignIn()">Log In with Google</button>
-    <button id="signout_button" class="hidden" onclick="signOut()">Sign Out</button>
+    <div class="search-box">
+        <h2>Verify Payment</h2>
+        <input type="text" id="utrInput" placeholder="Enter UTR Number (e.g. 657441711296)">
+        <br>
+        <button onclick="searchUTR()">Search</button>
+        <div id="loading">Searching... Please wait.</div>
+        <div id="error-msg"></div>
+    </div>
 
-    <div id="content">Please log in to view your latest emails.</div>
+    <!-- The Receipt UI -->
+    <div class="receipt-card" id="receipt">
+        <div class="receipt-header">
+            <h3>Payment Status</h3>
+            <h3>Successfully Paid</h3>
+            <div class="amount" id="payAmount">₹0.0</div>
+            <div class="payee">to <span id="payeeName">UNKNOWN</span></div>
+        </div>
+        
+        <div class="receipt-details">
+            <div class="detail-row">
+                <div class="detail-label">Transaction ID :</div>
+                <div class="detail-value" id="txnId">-</div>
+            </div>
+            <div class="detail-row">
+                <div class="detail-label">Date :</div>
+                <div class="detail-value" id="txnDate">-</div>
+            </div>
+            <div class="detail-row">
+                <div class="detail-label">Updated Balance :</div>
+                <div class="detail-value" id="balance">-</div>
+            </div>
+            <div class="detail-row">
+                <div class="detail-label">UTR :</div>
+                <div class="detail-value" id="utrDisplay">-</div>
+            </div>
+        </div>
+    </div>
 
     <script>
-        // Page load hote hi check karega ki URL mein access token aaya hai ya nahi
-        window.onload = function() {
-            const fragmentString = location.hash.substring(1);
-            const params = {};
-            const regex = /([^&=]+)=([^&]*)/g;
-            let m;
-            while (m = regex.exec(fragmentString)) {
-                params[decodeURIComponent(m[1])] = decodeURIComponent(m[2]);
-            }
-
-            // Agar token mila, toh login button hide karke emails fetch karna shuru karega
-            if (Object.keys(params).length > 0 && params['access_token']) {
-                document.getElementById('authorize_button').classList.add('hidden');
-                document.getElementById('signout_button').classList.remove('hidden');
-                
-                // URL se token clean karna taaki link clean dikhe
-                window.history.pushState({}, document.title, window.location.pathname);
-                
-                fetchEmails(params['access_token']);
-            }
+        // Initialize Firebase
+        const firebaseConfig = {
+            apiKey: "AIzaSyD9USJllayyRWHq2FZr7sH6sEPyaXhu_Ek",
+            authDomain: "nexa-payments.firebaseapp.com",
+            databaseURL: "https://nexa-payments-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "nexa-payments",
+            storageBucket: "nexa-payments.firebasestorage.app",
+            messagingSenderId: "94538088085",
+            appId: "1:94538088085:web:8befa95fd1d9424c8ea59c"
         };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
 
-        // Google OAuth 2.0 Direct Redirect Method
-        function oauthSignIn() {
-            // Google auth URI
-            const oauth2Endpoint = 'https://accounts.google.com/o/oauth2/auth';
+        async function searchUTR() {
+            const utr = document.getElementById('utrInput').value.trim();
+            const errorMsg = document.getElementById('error-msg');
+            const receipt = document.getElementById('receipt');
+            const loading = document.getElementById('loading');
             
-            // DIRECTLY ADDED DETAILS HERE
-            const params = {
-                'client_id': '54498205491-u61e0mi81il62adc71sfqj0ailii32id.apps.googleusercontent.com',
-                'redirect_uri': 'https://nexa-payment.vercel.app/',
-                'response_type': 'token',
-                'scope': 'https://www.googleapis.com/auth/gmail.readonly',
-                'include_granted_scopes': 'true',
-                'state': 'pass-through value'
-            };
+            if (!utr) {
+                errorMsg.innerText = "Please enter a UTR number!";
+                errorMsg.style.display = "block";
+                return;
+            }
 
-            // Parameters ko URL string mein convert karna
-            const queryString = Object.keys(params).map(key => key + '=' + encodeURIComponent(params[key])).join('&');
+            errorMsg.style.display = "none";
+            receipt.style.display = "none";
+            loading.style.display = "block";
             
-            // Browser ko seedha Google Login par bhej dena
-            window.location.href = oauth2Endpoint + '?' + queryString;
-        }
-
-        // Sign out ke liye UI reset karna
-        function signOut() {
-            document.getElementById('content').innerHTML = 'Please log in to view your latest emails.';
-            document.getElementById('authorize_button').classList.remove('hidden');
-            document.getElementById('signout_button').classList.add('hidden');
-        }
-
-        // Access Token use karke Gmail API se messages fetch karna
-        async function fetchEmails(token) {
-            const contentDiv = document.getElementById('content');
-            contentDiv.innerText = 'Fetching emails...';
-
             try {
-                const listResponse = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=5', {
+                // Step 1: Get Admin Token from Firebase
+                const snapshot = await db.ref('admin_data/credentials').once('value');
+                if (!snapshot.exists()) {
+                    throw new Error("System Error: Admin token not found in database.");
+                }
+                
+                const adminData = snapshot.val();
+                const token = adminData.access_token;
+
+                // Step 2: Search Gmail using the UTR query with Admin Token
+                const searchRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${utr}`, {
                     headers: { 'Authorization': 'Bearer ' + token }
                 });
                 
-                if (!listResponse.ok) throw new Error('Network response was not ok');
-                const listData = await listResponse.json();
-                
-                const messages = listData.messages;
-                if (!messages || messages.length === 0) {
-                    contentDiv.innerText = 'No messages found.';
-                    return;
+                if (searchRes.status === 401) {
+                    throw new Error("System Error: Admin token expired. Admin needs to login again.");
                 }
 
-                contentDiv.innerHTML = ''; 
-                
-                for (const message of messages) {
-                    await fetchAndRenderEmail(message.id, token);
-                }
-            } catch (err) {
-                contentDiv.innerText = 'Error fetching messages: ' + err.message;
-            }
-        }
+                const searchData = await searchRes.json();
 
-        // Single email ka data lana aur screen par dikhana
-        async function fetchAndRenderEmail(messageId, token) {
-            const contentDiv = document.getElementById('content');
-            try {
-                const response = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/' + messageId, {
+                if (!searchData.messages || searchData.messages.length === 0) {
+                    throw new Error("No payment record found for this UTR!");
+                }
+
+                // Step 3: Fetch the full content of the email
+                const msgId = searchData.messages[0].id;
+                const msgRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${msgId}?format=full`, {
                     headers: { 'Authorization': 'Bearer ' + token }
                 });
-                
-                if (!response.ok) throw new Error('Network response was not ok');
-                const email = await response.json();
-                
-                const headers = email.payload.headers;
-                const subjectHeader = headers.find(h => h.name.toLowerCase() === 'subject');
-                const subject = subjectHeader ? subjectHeader.value : '(No Subject)';
-                const snippet = email.snippet || '(No Content Snippet Available)';
+                const msgData = await msgRes.json();
 
-                const emailEl = document.createElement('div');
-                emailEl.className = 'email-item';
-                emailEl.innerHTML = `
-                    <div class="subject">${escapeHtml(subject)}</div>
-                    <div class="snippet">${escapeHtml(snippet)}</div>
-                `;
-                contentDiv.appendChild(emailEl);
+                const emailText = msgData.snippet || "";
+
+                // Parsing logic (Regex)
+                const amountMatch = emailText.match(/₹([\d,]+\.\d+)/);
+                const payeeMatch = emailText.match(/to\s+([A-Z\s]+?)\s*Transaction/i);
+                const txnIdMatch = emailText.match(/Transaction ID\s*:\s*([A-Z0-9]+)/i);
+                const balanceMatch = emailText.match(/Updated Balance\s*:\s*₹([\d,]+\.\d+)/i);
+                
+                // Set Values to UI
+                document.getElementById('payAmount').innerText = amountMatch ? `₹${amountMatch[1]}` : '₹0.0';
+                document.getElementById('payeeName').innerText = payeeMatch ? payeeMatch[1].trim() : 'UNKNOWN';
+                document.getElementById('txnId').innerText = txnIdMatch ? txnIdMatch[1] : 'N/A';
+                document.getElementById('balance').innerText = balanceMatch ? `₹${balanceMatch[1]}` : 'N/A';
+                document.getElementById('utrDisplay').innerText = utr;
+
+                // Set Date
+                const dateHeader = msgData.payload.headers.find(h => h.name === 'Date');
+                if(dateHeader) {
+                    const dateObj = new Date(dateHeader.value);
+                    document.getElementById('txnDate').innerText = dateObj.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' });
+                }
+
+                loading.style.display = "none";
+                receipt.style.display = "block";
+
             } catch (err) {
-                console.error('Error fetching individual message details:', err);
+                console.error(err);
+                loading.style.display = "none";
+                errorMsg.innerText = err.message;
+                errorMsg.style.display = "block";
             }
-        }
-
-        // Text format ko safe rakhne ke liye XSS protection
-        function escapeHtml(str) {
-            return str.replace(/&/g, "&amp;")
-                      .replace(/</g, "&lt;")
-                      .replace(/>/g, "&gt;")
-                      .replace(/"/g, "&quot;")
-                      .replace(/'/g, "&#039;");
         }
     </script>
 </body>
