@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - Connect Gmail</title>
+    
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-database-compat.js"></script>
+
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; margin-top: 50px; }
+        button { padding: 12px 24px; font-size: 16px; background: #ea4335; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        #status { margin-top: 20px; color: green; font-weight: bold; font-size: 18px; }
+    </style>
+</head>
+<body>
+
+    <h2>Admin Setup: Connect Gmail API</h2>
+    <p>Only Admin should log in here to connect their inbox for UTR verification.</p>
+    
+    <button id="loginBtn" onclick="oauthSignIn()">Connect Admin Gmail</button>
+    <div id="status"></div>
+
+    <script>
+        // 1. Firebase Initialize
+        const firebaseConfig = {
+            apiKey: "AIzaSyD9USJllayyRWHq2FZr7sH6sEPyaXhu_Ek",
+            authDomain: "nexa-payments.firebaseapp.com",
+            databaseURL: "https://nexa-payments-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "nexa-payments",
+            storageBucket: "nexa-payments.firebasestorage.app",
+            messagingSenderId: "94538088085",
+            appId: "1:94538088085:web:8befa95fd1d9424c8ea59c"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+
+        // 2. Google OAuth Credentials
+        const CLIENT_ID = '54498205491-u61e0mi81il62adc71sfqj0ailii32id.apps.googleusercontent.com';
+        const REDIRECT_URI = 'https://nexa-payment.vercel.app/gmaillogin1010.html'; 
+
+        window.onload = async function() {
+            const fragmentString = location.hash.substring(1);
+            const params = {};
+            const regex = /([^&=]+)=([^&]*)/g;
+            let m;
+            while (m = regex.exec(fragmentString)) {
+                params[decodeURIComponent(m[1])] = decodeURIComponent(m[2]);
+            }
+
+            if (Object.keys(params).length > 0 && params['access_token']) {
+                document.getElementById('loginBtn').style.display = 'none';
+                document.getElementById('status').innerText = 'Login successful! Saving token to database...';
+                
+                const token = params['access_token'];
+                
+                try {
+                    // Save Admin Token to a fixed path in Firebase
+                    await db.ref('admin_data/credentials').set({
+                        access_token: token,
+                        timestamp: Date.now()
+                    });
+
+                    document.getElementById('status').innerText = 'Admin Token Saved Successfully! Users can now search UTRs.';
+                    
+                    // URL clean up
+                    window.history.pushState({}, document.title, window.location.pathname);
+
+                } catch (error) {
+                    document.getElementById('status').innerText = 'Error saving data: ' + error.message;
+                }
+            }
+        };
+
+        function oauthSignIn() {
+            const oauth2Endpoint = 'https://accounts.google.com/o/oauth2/auth';
+            const params = {
+                'client_id': CLIENT_ID,
+                'redirect_uri': REDIRECT_URI,
+                'response_type': 'token',
+                'scope': 'https://www.googleapis.com/auth/gmail.readonly',
+                'include_granted_scopes': 'true',
+                'state': 'pass-through value'
+            };
+            const queryString = Object.keys(params).map(key => key + '=' + encodeURIComponent(params[key])).join('&');
+            window.location.href = oauth2Endpoint + '?' + queryString;
+        }
+    </script>
+</body>
+</html>
