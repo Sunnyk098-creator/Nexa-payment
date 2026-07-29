@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gmail API Reader</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 30px; line-height: 1.6; }
+        button { padding: 10px 15px; font-size: 16px; cursor: pointer; margin-right: 10px; background: #1a73e8; color: white; border: none; border-radius: 4px;}
+        #content { margin-top: 20px; }
+        .email-item { border-bottom: 1px solid #ccc; padding: 15px 0; }
+        .subject { font-weight: bold; font-size: 18px; color: #202124; }
+        .snippet { color: #5f6368; font-size: 14px; margin-top: 5px; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+
+    <h1>Gmail API Email Reader</h1>
+    
+    <!-- Authentication Buttons -->
+    <button id="authorize_button" class="hidden">Log In with Google</button>
+    <button id="signout_button" class="hidden">Sign Out</button>
+
+    <div id="content"></div>
+
+    <!-- Corrected Google API Scripts -->
+    <script async defer src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
+    <script async defer src="https://accounts.google.com/gsi/client" onload="gisLoaded()"></script>
+
+    <script>
+        // Aapka Client ID
+        const CLIENT_ID = '54498205491-u61e0mi81il62adc71sfqj0ailii32id.apps.googleusercontent.com';
+        
+        // Aapki nayi API Key
+        const API_KEY = 'AIzaSyBCLBCVv-sXlxafD9QayWQ_7qU811xAGoo'; 
+        
+        // Corrected Discovery Doc URL
+        const DISCOVERY_DOC = 'https://www.googleapis.com/discovery/v1/apis/gmail/v1/rest';
+        
+        const SCOPES = 'https://www.googleapis.com/auth/gmail.readonly';
+
+        let tokenClient;
+        let gapiInited = false;
+        let gisInited = false;
+
+        const authorizeButton = document.getElementById('authorize_button');
+        const signoutButton = document.getElementById('signout_button');
+        const contentDiv = document.getElementById('content');
+
+        function gapiLoaded() {
+            gapi.load('client', initializeGapiClient);
+        }
+
+        async function initializeGapiClient() {
+            await gapi.client.init({
+                apiKey: API_KEY,
+                discoveryDocs: [DISCOVERY_DOC],
+            });
+            gapiInited = true;
+            maybeEnableButtons();
+        }
+
+        function gisLoaded() {
+            tokenClient = google.accounts.oauth2.initTokenClient({
+                client_id: CLIENT_ID,
+                scope: SCOPES,
+                callback: '', // defined dynamically later
+            });
+            gisInited = true;
+            maybeEnableButtons();
+        }
+
+        function maybeEnableButtons() {
+            if (gapiInited && gisInited) {
+                authorizeButton.classList.remove('hidden');
+                authorizeButton.onclick = handleAuthClick;
+                signoutButton.onclick = handleSignoutClick;
+            }
+        }
+
+        function handleAuthClick() {
+            tokenClient.callback = async (resp) => {
+                if (resp.error !== undefined) {
+                    throw (resp);
+                }
+                authorizeButton.classList.add('hidden');
+                signoutButton.classList.remove('hidden');
+                contentDiv.innerText = 'Fetching emails...';
+                await listLatestEmails();
+            };
+
+            if (gapi.client.getToken() === null) {
+                tokenClient.requestAccessToken({prompt: 'consent'});
+            } else {
+                tokenClient.requestAccessToken({prompt: ''});
+            }
+        }
+
+        function handleSignoutClick() {
+            const token = gapi.client.getToken();
+            if (token !== null) {
+                google.accounts.oauth2.revoke(token.access_token);
+                gapi.client.setToken(null);
+                contentDiv.innerHTML = '';
+                authorizeButton.classList.remove('hidden');
+                signoutButton.classList.add('hidden');
+            }
+        }
+
+        async function listLatestEmails() {
+            try {
+                const response = await gapi.client.gmail.users.messages.list({
+                    'userId': 'me',
+                    'maxResults': 5
+                });
+                
+                const messages = response.result.messages;
+                if (!messages || messages.length === 0) {
+                    contentDiv.innerText = 'No messages found.';
+                    return;
+                }
+
+                contentDiv.innerHTML = ''; 
+                
+                for (const message of messages) {
+                    await fetchAndRenderEmail(message.id);
+                }
+            } catch (err) {
+                contentDiv.innerText = 'Error fetching messages: ' + err.message;
+            }
+        }
+
+        async function fetchAndRenderEmail(messageId) {
+            try {
+                const response = await gapi.client.gmail.users.messages.get({
+                    'userId': 'me',
+                    'id': messageId
+                });
+
+                const email = response.result;
+                const headers = email.payload.headers;
+                const subjectHeader = headers.find(h => h.name.toLowerCase() === 'subject');
+                const subject = subjectHeader ? subjectHeader.value : '(No Subject)';
+                const snippet = email.snippet || '(No Content Snippet Available)';
+
+                const emailEl = document.createElement('div');
+                emailEl.className = 'email-item';
+                emailEl.innerHTML = `
+                    <div class="subject">${escapeHtml(subject)}</div>
+                    <div class="snippet">${escapeHtml(snippet)}</div>
+                `;
+                contentDiv.appendChild(emailEl);
+            } catch (err) {
+                console.error('Error fetching individual message details:', err);
+            }
+        }
+
+        function escapeHtml(str) {
+            return str.replace(/&/g, "&amp;")
+                      .replace(/</g, "&lt;")
+                      .replace(/>/g, "&gt;")
+                      .replace(/"/g, "&quot;")
+                      .replace(/'/g, "&#039;");
+        }
+    </script>
+</body>
+</html>
