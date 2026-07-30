@@ -2,170 +2,150 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Verify Payment by UTR</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Nexa Payments</title>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- QRCode.js CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     
-    <!-- Firebase SDKs -->
-    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-database-compat.js"></script>
+    <!-- Firebase SDK Compat -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
 
-    <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f0f2f5; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
-        
-        .search-box { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-bottom: 20px; width: 100%; max-width: 400px; text-align: center;}
-        input[type="text"] { width: 80%; padding: 10px; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 5px; font-size: 16px; }
-        button { padding: 10px 20px; font-size: 16px; background: #1a73e8; color: white; border: none; border-radius: 5px; cursor: pointer; }
-        
-        /* Dark Theme Receipt UI */
-        .receipt-card { background-color: #121212; color: #ffffff; width: 100%; max-width: 380px; border-radius: 20px; padding: 30px 20px; display: none; box-shadow: 0 10px 30px rgba(0,0,0,0.5); font-family: monospace, sans-serif;}
-        .receipt-header { text-align: center; margin-bottom: 30px; }
-        .receipt-header h3 { margin: 5px 0; font-weight: normal; color: #e0e0e0; font-size: 18px;}
-        .amount { font-size: 40px; font-weight: bold; margin: 15px 0; }
-        .payee { font-size: 18px; font-weight: bold; text-transform: uppercase; margin-bottom: 20px;}
-        
-        .receipt-details { background-color: #1e1e1e; border-radius: 15px; padding: 20px; text-align: left; }
-        .detail-row { margin-bottom: 15px; }
-        .detail-label { color: #888; font-size: 12px; margin-bottom: 5px; }
-        .detail-value { font-size: 14px; color: #ddd; letter-spacing: 0.5px; word-break: break-all;}
-        
-        #error-msg { color: red; margin-top: 10px; display: none;}
-        #loading { display: none; margin-top: 10px; font-weight: bold; color: #555; }
-    </style>
+    <!-- CSS File -->
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-    <div class="search-box">
-        <h2>Verify Payment</h2>
-        <input type="text" id="utrInput" placeholder="Enter UTR Number (e.g. 657441711296)">
-        <br>
-        <button onclick="searchUTR()">Search</button>
-        <div id="loading">Searching... Please wait.</div>
-        <div id="error-msg"></div>
+    <!-- IP Blocked Screen -->
+    <div class="blocked-screen" id="blockedScreen" style="display: none;">
+        <div class="payment-card status-card">
+            <img src="block.gif" alt="Blocked" class="status-gif" onerror="this.style.display='none'">
+            <div class="status-text" style="color: #ff6b6b;">Access Forbidden</div>
+            <div class="sub-text">Only the registered admin can create payment links.</div>
+        </div>
     </div>
 
-    <!-- The Receipt UI -->
-    <div class="receipt-card" id="receipt">
-        <div class="receipt-header">
-            <h3>Payment Status</h3>
-            <h3>Successfully Paid</h3>
-            <div class="amount" id="payAmount">₹0.0</div>
-            <div class="payee">to <span id="payeeName">UNKNOWN</span></div>
-        </div>
+    <!-- 1. Amount Entry Card (Home/Link Creation) -->
+    <div class="payment-card" id="amountEntryCard" style="display: none;">
+        <img src="moneyfly.gif" alt="Aesthetic" class="entry-gif" onerror="this.src='moneybag.gif'">
+        <div class="entry-title">How much you want to pay?</div>
         
-        <div class="receipt-details">
-            <div class="detail-row">
-                <div class="detail-label">Transaction ID :</div>
-                <div class="detail-value" id="txnId">-</div>
+        <div class="input-wrapper">
+            <span class="currency-symbol">₹</span>
+            <input type="number" id="customAmountInput" class="custom-amount-input" placeholder="0" min="1" max="10000000">
+        </div>
+        <div class="limit-text">Min: ₹1 | Max: ₹1,00,00,000</div>
+
+        <button class="btn btn-submit" id="proceedToPayBtn">Proceed to Pay</button>
+        <button class="btn btn-no-amount" id="noAmountBtn">Create No Amount QR</button>
+
+        <div class="footer">🔒 Nexa Secure Payments</div>
+    </div>
+
+    <!-- 2. Loading / Creating Screen -->
+    <div class="payment-card status-card" id="loadingCard" style="display: none;">
+        <img src="light.gif" alt="Loading" class="status-gif" onerror="this.src='Loading.gif'">
+        <div class="status-text">Creating Transaction...</div>
+        <div class="sub-text">Please wait while we generate a secure link.</div>
+    </div>
+
+    <!-- 3. Main QR Payment Card -->
+    <div class="payment-card" id="mainCard" style="display: none;">
+        <div class="header">
+            <img src="logo.jpg" alt="Logo" class="logo" onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'80\' height=\'80\'><circle cx=\'40\' cy=\'40\' r=\'40\' fill=\'%23ccc\'/></svg>'">
+            <div class="name-container">
+                <img src="crown.gif" alt="Crown" class="crown-icon" onerror="this.style.display='none'">
+                <span class="name-text">SUNNY KUMAR</span>
+                <img src="btick.gif" alt="Verified" class="badge" onerror="this.style.display='none'">
             </div>
-            <div class="detail-row">
-                <div class="detail-label">Date :</div>
-                <div class="detail-value" id="txnDate">-</div>
+            <!-- Global Timer -->
+            <div class="timer-box" id="timerBox">
+                <img src="clock.gif" class="inline-icon" alt="Time" onerror="this.style.display='none'">
+                Time left: <span id="timeRemaining">10:00</span>
             </div>
-            <div class="detail-row">
-                <div class="detail-label">Updated Balance :</div>
-                <div class="detail-value" id="balance">-</div>
+        </div>
+
+        <div class="amount-card" id="amountDisplay">₹0</div>
+
+        <div class="qr-container">
+            <div id="qrcode"></div>
+            <img src="moneybag.gif" alt="Money Bag" class="qr-center-icon" onerror="this.style.display='none'">
+        </div>
+
+        <div class="button-group">
+            <button class="btn btn-pay" id="payBtn">
+                <img src="rocket.gif" alt="Rocket" class="btn-icon" onerror="this.style.display='none'">
+                Pay Now
+            </button>
+            <button class="btn btn-paid" id="paidBtn">
+                <img src="tick.gif" alt="Tick" class="btn-icon" onerror="this.style.display='none'">
+                Paid
+            </button>
+        </div>
+        <div class="footer"><img src="lock.gif" alt="Lock" class="inline-icon" onerror="this.style.display='none'"> Secured by Nexa Database</div>
+    </div>
+
+    <!-- 4. Verification Card -->
+    <div class="payment-card" id="verifyCard" style="display: none;">
+        <div class="header" style="margin-bottom: 10px;">
+            <div class="name-container">
+                <span class="name-text">Verify Payment</span>
             </div>
-            <div class="detail-row">
-                <div class="detail-label">UTR :</div>
-                <div class="detail-value" id="utrDisplay">-</div>
+        </div>
+
+        <div class="instruction-box">
+            <b>FamPay:</b> Enter Transaction ID (starts with FMPIB)<br>
+            <b>Other UPI Apps:</b> Enter 12-digit UTR Number
+        </div>
+
+        <div class="step-label">Enter UTR / Transaction ID</div>
+        <input type="text" id="utrInput" class="input-field" placeholder="e.g. 657441711296 or FMPIB..." autocomplete="off">
+
+        <button class="btn btn-submit" id="submitProofBtn">Verify Now</button>
+        <button class="btn btn-back" id="cancelVerifyBtn">Back</button>
+    </div>
+
+    <!-- 5. Global Status Overlay -->
+    <div id="statusOverlay">
+        <div class="status-card-inner">
+            
+            <div id="processingContent" style="display: none;">
+                <img src="eye.gif" alt="Processing" class="status-gif" onerror="this.src='Loading.gif'">
+                <div class="status-text">Processing Payment</div>
+                <div class="sub-text">Verifying your transaction securely...</div>
             </div>
+
+            <div id="successContent" style="display: none;">
+                <img src="tick.gif" alt="Success" class="status-gif">
+                <div class="status-text" style="color: #20c997;">Payment Successful</div>
+                <div class="sub-text">Thank you! Your transaction has been verified.</div>
+            </div>
+
+            <div id="failureContent" style="display: none;">
+                <img src="x.gif" alt="Fail" class="status-gif">
+                <div class="status-text" style="color: #ff6b6b;">Verification Failed</div>
+                <div class="sub-text" id="failMsg" style="font-weight: 700; color: #d63031;">Payment not found</div>
+                <button class="btn btn-paid" id="retryBtn" style="margin-top: 20px; width: 100%;">Try Again</button>
+            </div>
+
+            <div id="expiredContent" style="display: none;">
+                <img src="clock.gif" alt="Time Up" class="status-gif" onerror="this.src='Time.gif'">
+                <div class="status-text" style="color: #ff9f43;">Time Up!</div>
+                <div class="sub-text">This payment link has expired. Please create a new one.</div>
+                <button class="btn btn-back" onclick="window.location.href='/'" style="margin-top: 15px;">Create New Link</button>
+            </div>
+
+            <div id="alreadyPaidContent" style="display: none;">
+                <img src="tick.gif" alt="Paid" class="status-gif">
+                <div class="status-text" style="color: #20c997;">Already Paid</div>
+                <div class="sub-text">This transaction link has already been completed successfully.</div>
+            </div>
+
         </div>
     </div>
 
-    <script>
-        // Initialize Firebase
-        const firebaseConfig = {
-            apiKey: "AIzaSyD9USJllayyRWHq2FZr7sH6sEPyaXhu_Ek",
-            authDomain: "nexa-payments.firebaseapp.com",
-            databaseURL: "https://nexa-payments-default-rtdb.asia-southeast1.firebasedatabase.app",
-            projectId: "nexa-payments",
-            storageBucket: "nexa-payments.firebasestorage.app",
-            messagingSenderId: "94538088085",
-            appId: "1:94538088085:web:8befa95fd1d9424c8ea59c"
-        };
-        firebase.initializeApp(firebaseConfig);
-        const db = firebase.database();
-
-        async function searchUTR() {
-            const utr = document.getElementById('utrInput').value.trim();
-            const errorMsg = document.getElementById('error-msg');
-            const receipt = document.getElementById('receipt');
-            const loading = document.getElementById('loading');
-            
-            if (!utr) {
-                errorMsg.innerText = "Please enter a UTR number!";
-                errorMsg.style.display = "block";
-                return;
-            }
-
-            errorMsg.style.display = "none";
-            receipt.style.display = "none";
-            loading.style.display = "block";
-            
-            try {
-                // Step 1: Get Admin Token from Firebase
-                const snapshot = await db.ref('admin_data/credentials').once('value');
-                if (!snapshot.exists()) {
-                    throw new Error("System Error: Admin token not found in database.");
-                }
-                
-                const adminData = snapshot.val();
-                const token = adminData.access_token;
-
-                // Step 2: Search Gmail using the UTR query with Admin Token
-                const searchRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${utr}`, {
-                    headers: { 'Authorization': 'Bearer ' + token }
-                });
-                
-                if (searchRes.status === 401) {
-                    throw new Error("System Error: Admin token expired. Admin needs to login again.");
-                }
-
-                const searchData = await searchRes.json();
-
-                if (!searchData.messages || searchData.messages.length === 0) {
-                    throw new Error("No payment record found for this UTR!");
-                }
-
-                // Step 3: Fetch the full content of the email
-                const msgId = searchData.messages[0].id;
-                const msgRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${msgId}?format=full`, {
-                    headers: { 'Authorization': 'Bearer ' + token }
-                });
-                const msgData = await msgRes.json();
-
-                const emailText = msgData.snippet || "";
-
-                // Parsing logic (Regex)
-                const amountMatch = emailText.match(/₹([\d,]+\.\d+)/);
-                const payeeMatch = emailText.match(/to\s+([A-Z\s]+?)\s*Transaction/i);
-                const txnIdMatch = emailText.match(/Transaction ID\s*:\s*([A-Z0-9]+)/i);
-                const balanceMatch = emailText.match(/Updated Balance\s*:\s*₹([\d,]+\.\d+)/i);
-                
-                // Set Values to UI
-                document.getElementById('payAmount').innerText = amountMatch ? `₹${amountMatch[1]}` : '₹0.0';
-                document.getElementById('payeeName').innerText = payeeMatch ? payeeMatch[1].trim() : 'UNKNOWN';
-                document.getElementById('txnId').innerText = txnIdMatch ? txnIdMatch[1] : 'N/A';
-                document.getElementById('balance').innerText = balanceMatch ? `₹${balanceMatch[1]}` : 'N/A';
-                document.getElementById('utrDisplay').innerText = utr;
-
-                // Set Date
-                const dateHeader = msgData.payload.headers.find(h => h.name === 'Date');
-                if(dateHeader) {
-                    const dateObj = new Date(dateHeader.value);
-                    document.getElementById('txnDate').innerText = dateObj.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' });
-                }
-
-                loading.style.display = "none";
-                receipt.style.display = "block";
-
-            } catch (err) {
-                console.error(err);
-                loading.style.display = "none";
-                errorMsg.innerText = err.message;
-                errorMsg.style.display = "block";
-            }
-        }
-    </script>
+    <script src="script.js"></script>
 </body>
 </html>
