@@ -250,10 +250,9 @@ function showOverlayContent(contentElement) {
 }
 
 // ==========================================
-// 7. GMAIL API VERIFICATION LOGIC (NO CALCULATION)
+// 7. GMAIL API VERIFICATION LOGIC (GAS BACKEND)
 // ==========================================
 submitProofBtn.addEventListener("click", async () => {
-    // Both UTR and Transaction IDs are treated exactly the same
     const utrOrTxnId = utrInput.value.trim().toUpperCase();
 
     if (!utrOrTxnId) {
@@ -265,7 +264,7 @@ submitProofBtn.addEventListener("click", async () => {
     showOverlayContent(processingContent); 
 
     try {
-        // Step 1: Duplicate Check (Prevents reuse of ANY tracking ID)
+        // Step 1: Duplicate Check
         let usedSnap = await db.ref(`used_utrs/${utrOrTxnId}`).once('value');
         if (usedSnap.exists()) {
             failMsgEl.innerText = "This ID has already been used for a payment!"; 
@@ -273,49 +272,23 @@ submitProofBtn.addEventListener("click", async () => {
             return;
         }
 
-        // Step 2: Get Admin Gmail Token
-        const snapshot = await db.ref('admin_data/credentials').once('value');
-        if (!snapshot.exists()) {
-            throw new Error("System Offline. Admin login required.");
-        }
+        // Step 2: Call Google Apps Script Backend (No Token Needed)
+        const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwo3xOqU-9yWeveGkkJvBVZrIGilHrSPNZm0iw7eD9xO7js7d0cCDvzqMUJlAfei1MOHA/exec";
         
-        const adminData = snapshot.val();
-        const token = adminData.access_token;
+        const response = await fetch(`${GAS_WEB_APP_URL}?utr=${encodeURIComponent(utrOrTxnId)}`);
+        const result = await response.json();
 
-        // Step 3: Search Gmail API
-        const searchRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${utrOrTxnId}`, {
-            headers: { 'Authorization': 'Bearer ' + token }
-        });
-        
-        if (searchRes.status === 401) {
-            throw new Error("Admin token expired. Please re-login.");
-        }
-
-        const searchData = await searchRes.json();
-        if (!searchData.messages || searchData.messages.length === 0) {
-            failMsgEl.innerText = "Payment not found. Please check your ID and try again in 1 minute.";
+        // Step 3: Check if Payment Found
+        if (!result.success) {
+            failMsgEl.innerText = result.error || "Payment not found. Please check your ID and try again in 1 minute.";
             showOverlayContent(failureContent);
             return;
         }
 
-        // Step 4: Fetch exact email and verify Amount
-        const msgId = searchData.messages[0].id;
-        const msgRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${msgId}?format=full`, {
-            headers: { 'Authorization': 'Bearer ' + token }
-        });
-        const msgData = await msgRes.json();
-        const emailText = msgData.snippet || "";
-
-        // Parse amount logic
-        const amountMatch = emailText.match(/₹([\d,]+\.\d+)/) || emailText.match(/Rs\.?\s*([\d,]+\.\d+)/i) || emailText.match(/INR\s*([\d,]+\.\d+)/i);
-        let paidAmount = 0;
-        if (amountMatch) {
-            paidAmount = parseFloat(amountMatch[1].replace(/,/g, ''));
-        }
-
-        // Step 5: Amount Validation
+        let paidAmount = result.amount;
         let expectedAmount = currentTxnId !== 'no' ? parseFloat(currentTxnData.amount) : 0;
         
+        // Step 4: Amount Validation
         if (currentTxnId !== 'no' && paidAmount < expectedAmount) {
             failMsgEl.innerText = `Amount mismatch! Expected ₹${expectedAmount}, but found ₹${paidAmount}`;
             showOverlayContent(failureContent);
@@ -333,13 +306,12 @@ submitProofBtn.addEventListener("click", async () => {
         if (currentTxnId !== 'no') {
             updates[`transactions/${currentTxnId}/status`] = 'paid';
         }
-        // Save the ID so it cannot be used again
         updates[`used_utrs/${utrOrTxnId}`] = true;
         
         await db.ref().update(updates);
-        clearInterval(timerInterval); 
+        if (timerInterval) clearInterval(timerInterval); 
         
-        // Telegram Text Notification
+        // Telegram Notification (Text Only)
         try {
             let userIp = "Unknown IP";
             const ipRes = await fetch('https://api.ipify.org?format=json');
@@ -348,7 +320,7 @@ submitProofBtn.addEventListener("click", async () => {
                 userIp = ipData.ip;
             }
 
-            const captionText = `🔔 Payment Automatically Verified\n\n💰 Amount: ₹${paidAmount}\n🆔 Tracking ID: ${utrOrTxnId}\n🌐 User IP: ${userIp}\n\n✅ Tracked securely via Gmail API.`;
+            const captionText = `🔔 Payment Automatically Verified\n\n💰 Amount: ₹${paidAmount}\n🆔 Tracking ID: ${utrOrTxnId}\n🌐 User IP: ${userIp}\n\n✅ Tracked securely via GAS Backend.`;
 
             fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
                 method: 'POST',
@@ -359,15 +331,13 @@ submitProofBtn.addEventListener("click", async () => {
                 })
             }).catch(e => console.error("Telegram Notification Error:", e));
 
-        } catch (e) {
-            console.error("Failed to send Telegram notification:", e);
-        }
+        } catch (e) {}
 
         showOverlayContent(successContent);
 
     } catch (error) {
         console.error("Verification Error:", error);
-        failMsgEl.innerText = error.message.includes("Admin token") ? error.message : "System processing error.";
+        failMsgEl.innerText = "System processing error. Please try again later.";
         showOverlayContent(failureContent);
     }
 });
